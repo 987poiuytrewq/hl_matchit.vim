@@ -9,6 +9,8 @@ let s:EXCEPT_ETERNAL_LOOP_COUNT = 30
 
 let s:last_cursor_moved = reltime()
 
+sign define HlMatchit text=|
+
 function! hl_matchit#enable()
   let ft = (exists('g:hl_matchit_allow_ft') && '' != g:hl_matchit_allow_ft) ?
         \ g:hl_matchit_allow_ft : '*'
@@ -49,12 +51,31 @@ function! hl_matchit#disable_buffer()
 endfunction
 
 function! hl_matchit#hide()
+    call s:delete_match()
+    call s:unplace_signs()
+endfunction
+
+function! s:delete_match()
   if exists('b:hl_matchit_current_match_id')
     try
         call matchdelete(b:hl_matchit_current_match_id)
     catch
     endtry
     unlet b:hl_matchit_current_match_id
+  endif
+endfunction
+
+function! s:unplace_signs()
+  if exists('b:hl_matchit_current_sign_count')
+    try
+        let i=0
+        while i <=  b:hl_matchit_current_sign_count
+            execute('sign unplace 1000 buffer=' . bufnr('%'))
+            let i = i+1
+        endwhile
+    catch
+    endtry
+    unlet b:hl_matchit_current_sign_count
   endif
 endfunction
 
@@ -65,6 +86,7 @@ function! hl_matchit#do_highlight_lazy()
   endif
   let s:last_cursor_moved = reltime()
 endfunction
+
 
 function! hl_matchit#do_highlight()
     if !exists('b:match_words')
@@ -96,22 +118,7 @@ function! hl_matchit#do_highlight()
         set ei=all
 
         let wsv = winsaveview()
-        let lcs = []
-
-        let i = 0
-        while 1
-            if (i > s:EXCEPT_ETERNAL_LOOP_COUNT)
-                let lcs = []
-                break
-            endif
-            normal %
-            let lc = {'line': line('.'), 'col': col('.')}
-            if len(lcs) > 0 && lc.line == lcs[0].line && lc.col == lcs[0].col
-                break
-            endif
-            call add(lcs, lc)
-            let i = i+1
-        endwhile
+        let lcs = s:find_lcs()
 
         "" temporary bug fix. when visual mode, Ctrl-v is not good...
         if s:is_visualmode()
@@ -119,20 +126,8 @@ function! hl_matchit#do_highlight()
         endif
 
         if len(lcs) > 1
-            let lcre = ''
-            call map(lcs, '"\\%" . v:val.line . "l" . "\\%" . v:val.col . "c"')
-            let lcre = join(lcs, '\|')
-            let mw = split(b:match_words, ',\|:')
-            let mw = filter(mw, 'v:val !~ "^[(){}[\\]]$"')
-            if &filetype =~# 'html'
-              " hack to improve html
-              call insert(mw,  '<\_[^>]\+>')
-            endif
-            let mwre = '\%(' . join(mw, '\|') . '\)'
-            let mwre = substitute(mwre, "'", "''", 'g')
-            let pattern = '.*\%(' . lcre . '\).*\&' . mwre
-            let b:hl_matchit_current_match_id =
-                  \ matchadd(g:hl_matchit_hl_groupname, pattern, g:hl_matchit_hl_priority)
+            call s:add_match(lcs)
+            call s:place_signs(lcs)
         endif
         call winrestview(wsv)
     finally
@@ -140,6 +135,54 @@ function! hl_matchit#do_highlight()
     endtry
 endfun
 
+function! s:find_lcs()
+    let lcs = []
+    let i = 0
+    while 1
+        if (i > s:EXCEPT_ETERNAL_LOOP_COUNT)
+            let lcs = []
+            break
+        endif
+        normal %
+        let lc = {'line': line('.'), 'col': col('.')}
+        if len(lcs) > 0 && lc.line == lcs[0].line && lc.col == lcs[0].col
+            break
+        endif
+        call add(lcs, lc)
+        let i = i+1
+    endwhile
+    return lcs
+endfunction
+
+function! s:add_match(lcs)
+    let lcres = copy(a:lcs)
+    let lcre = ''
+    call map(lcres, '"\\%" . v:val.line . "l" . "\\%" . v:val.col . "c"')
+    let lcre = join(lcres, '\|')
+    let mw = split(b:match_words, ',\|:')
+    let mw = filter(mw, 'v:val !~ "^[(){}[\\]]$"')
+    if &filetype =~# 'html'
+        " hack to improve html
+        call insert(mw,  '<\_[^>]\+>')
+    endif
+    let mwre = '\%(' . join(mw, '\|') . '\)'
+    let mwre = substitute(mwre, "'", "''", 'g')
+    let pattern = '.*\%(' . lcre . '\).*\&' . mwre
+    let b:hl_matchit_current_match_id =
+                \ matchadd(g:hl_matchit_hl_groupname, pattern, g:hl_matchit_hl_priority)
+endfunction
+
+function! s:place_signs(lcs)
+    let lines = copy(a:lcs)
+    call map(lines, 'v:val.line')
+    let line = min(lines)
+    let line_end = max(lines)
+    let b:hl_matchit_current_sign_count = line_end-line
+    while line <= line_end
+        execute("sign place 1000 line=" . line . " name=HlMatchit buffer=" . bufnr("%"))
+        let line = line+1
+    endwhile
+endfunction
 
 function! s:is_visualmode()
     let mode = mode()
