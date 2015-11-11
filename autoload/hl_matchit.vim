@@ -117,7 +117,6 @@ function! hl_matchit#do_highlight()
     try
         set ei=all
 
-        let wsv = winsaveview()
         let lcs = s:find_lcs()
 
         "" temporary bug fix. when visual mode, Ctrl-v is not good...
@@ -129,7 +128,6 @@ function! hl_matchit#do_highlight()
             call s:add_match(lcs)
             call s:place_signs(lcs)
         endif
-        call winrestview(wsv)
     finally
         execute("set eventignore=" . restore_eventignore)
     endtry
@@ -138,6 +136,7 @@ endfun
 function! s:find_lcs()
     let lcs = []
     let i = 0
+    let wsv = winsaveview()
     while 1
         if (i > s:EXCEPT_ETERNAL_LOOP_COUNT)
             let lcs = []
@@ -151,6 +150,7 @@ function! s:find_lcs()
         call add(lcs, lc)
         let i = i+1
     endwhile
+    call winrestview(wsv)
     return lcs
 endfunction
 
@@ -177,11 +177,13 @@ function! s:place_signs(lcs)
     call map(lines, 'v:val.line')
     let line = min(lines)
     let line_end = max(lines)
-    let b:hl_matchit_current_sign_count = line_end-line
-    while line <= line_end
+    if line_end > line
+      let b:hl_matchit_current_sign_count = line_end-line
+      while line <= line_end
         execute("sign place 1000 line=" . line . " name=HlMatchit buffer=" . bufnr("%"))
         let line = line+1
-    endwhile
+      endwhile
+    endif
 endfunction
 
 function! s:is_visualmode()
